@@ -180,6 +180,7 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 40px;font-size:12.5px;color
     <button role="tab" aria-selected="false" data-v="idols">Idols</button>
     <button role="tab" aria-selected="false" data-v="gallery" id="galTab">Gallery</button>
     <button role="tab" aria-selected="false" data-v="packs">Packs</button>
+    <button role="tab" aria-selected="false" data-v="requests">Requests</button>
   </nav>
 </header>
 
@@ -220,6 +221,7 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 40px;font-size:12.5px;color
       <th class="num" data-k="cards">Cards</th>
       <th class="num" data-k="members">Members</th>
       <th class="num" data-k="miss" title="Roster members with zero cards">Missing</th>
+      <th class="num" data-k="req" title="Unique players who asked for this group at the Help Desk">Asked</th>
       <th class="num" data-k="prem">Premium</th>
       <th class="num" data-k="free">Free</th>
       <th class="num" data-k="rew">Reward</th>
@@ -257,6 +259,7 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 40px;font-size:12.5px;color
       <th class="num" data-k="total">Cards</th>
       <th class="num" data-k="duo" title="Duo/ship cards this member appears in">In duos</th>
       <th data-k="best">Best rarity</th>
+      <th class="num" data-k="req" title="Unique players who asked for this member at the Help Desk">Asked</th>
     </tr></thead>
     <tbody></tbody>
   </table></div>
@@ -309,6 +312,34 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 40px;font-size:12.5px;color
   <p class="sub" style="margin-top:12px">Card art is stored alongside this page and loads per set as you browse — nothing is fetched from Roblox.</p>
 </section>
 
+<section id="v-requests" hidden>
+  <div class="tiles" id="rqTiles"></div>
+  <p class="sub" id="rqNote" style="margin-top:12px"></p>
+  <div class="toolbar" style="margin-top:14px">
+    <input type="search" id="rqSearch" placeholder="Search group or member…" aria-label="Search requests">
+    <select id="rqIn" aria-label="Filter by in-game status">
+      <option value="">All groups</option>
+      <option value="in">Already in the game</option>
+      <option value="out">Not in the game yet</option>
+    </select>
+  </div>
+  <h2>Most-requested groups</h2>
+  <div class="count-note" id="rqgCount"></div>
+  <div class="twrap"><table id="rqgTable">
+    <thead><tr><th>Group</th><th>In game</th><th class="num">Cards</th><th class="num" title="Unique players who asked">Players</th><th class="num">Tickets</th><th style="min-width:160px">Share</th><th>Most-named members</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <button class="more" id="rqgMore" hidden>Show more</button>
+  <h2>Most-requested members</h2>
+  <p class="sub">Members named in at least two tickets. “Cards” is how many they have in the game right now — zero means players are asking for someone who isn't in yet.</p>
+  <div class="count-note" id="rqmCount"></div>
+  <div class="twrap"><table id="rqmTable">
+    <thead><tr><th>Member</th><th>Group</th><th class="num">Cards</th><th class="num">Players</th><th class="num">Tickets</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <button class="more" id="rqmMore" hidden>Show more</button>
+</section>
+
 <section id="v-packs" hidden>
   <div class="toolbar" id="pFilters">
     <button class="fchip" data-f="" aria-pressed="true">All</button>
@@ -327,10 +358,11 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 40px;font-size:12.5px;color
 
 <script>
 async function init(){
-const [cd,PACKS,HISTORY]=await Promise.all([
+const [cd,PACKS,HISTORY,REQ]=await Promise.all([
   fetch("cards.json?v="+Date.now()).then(r=>r.json()),
   fetch("packs.json?v="+Date.now()).then(r=>r.json()),
-  fetch("pack_history.json?v="+Date.now()).then(r=>r.ok?r.json():{}).catch(()=>({}))
+  fetch("pack_history.json?v="+Date.now()).then(r=>r.ok?r.json():{}).catch(()=>({})),
+  fetch("requests.json?v="+Date.now()).then(r=>r.ok?r.json():null).catch(()=>null)
 ]);
 const SYNCED=cd.synced;
 const CARDS=cd.cards.map(c=>c.slice(0,8));
@@ -538,7 +570,12 @@ rowList(document.getElementById("poolType"),[
   ["Waiting on a rerun",CARDS.length-activeNowCards-rewCards],
   ["Reward-only",rewCards]]);
 
-const gArr=Object.values(groups).map(g=>({...g,members:memberCount[g.name]||0,miss:g.miss||0}));
+// ---- idol requests from the Help Desk (requests.json: aggregate counts only) ----
+const reqGroup={},reqMember={};
+if(REQ){for(const g of REQ.groups){reqGroup[norm(g.group)]=g;for(const m of g.members)reqMember[norm(g.group)+"¦"+norm(m.name)]=m;}}
+const reqFor=(g)=>reqGroup[norm(g)];
+const reqForM=(g,n)=>reqMember[norm(g)+"¦"+norm(n)];
+const gArr=Object.values(groups).map(g=>({...g,members:memberCount[g.name]||0,miss:g.miss||0,req:(reqFor(g.name)||{}).players||0}));
 gArr.sort((a,b)=>b.cards-a.cards);
 const topG=gArr.slice(0,24);
 rowList(document.getElementById("topGroups1"),topG.slice(0,12).map(g=>[g.name,g.cards,g.members+" members"]));
@@ -564,6 +601,7 @@ function renderGroups(){
   gBody.innerHTML=rows.map(g=>
     `<tr class="click" data-g="${esc(g.name)}"><td><b>${esc(g.name)}</b></td><td class="num">${g.cards}</td><td class="num">${g.members}</td>`+
     `<td class="num">${g.miss?`<b class="misstxt">${g.miss}</b>`:'<span class="muted">–</span>'}</td>`+
+    `<td class="num">${g.req?`<b>${g.req}</b>`:'<span class="muted">–</span>'}</td>`+
     `<td class="num">${g.prem||'<span class="muted">–</span>'}</td><td class="num">${g.free||'<span class="muted">–</span>'}</td><td class="num">${g.rew||'<span class="muted">–</span>'}</td>`+
     RARITIES.map(r=>`<td class="num">${g[r]||'<span class="muted">–</span>'}</td>`).join("")+`</tr>`).join("");
   for(const th of document.querySelectorAll("#gTable th")){
@@ -696,6 +734,7 @@ function mVal(m,k){
   switch(k){
     case"name":return m.name;case"group":return m.group;case"gen":return m.gen;
     case"total":return m.total;case"duo":return m.duo;case"best":return m.best;
+    case"req":return (reqForM(m.now||m.group,m.solo||m.name)||reqForM(m.group,m.name)||{}).players||0;
   }
 }
 function paintMemHeads(){
@@ -736,7 +775,8 @@ function renderMembers(reset=true){
     `<tr class="click" data-i="${i}"><td><b>${esc(m.name)}</b>${m.name===m.group?' <span class="muted">(group card)</span>':""}${m.missing?' <span class="chip sm miss">Missing</span>':""}${m.solo?` <span class="chip sm free">${m.now==="SOLO"?"Solo":"Now in "+esc(m.now)}</span>`:""}</td>`+
     `<td>${esc(m.group)}</td><td>${m.gen}</td><td class="num"><b>${m.total}</b></td>`+
     `<td class="num">${m.duo||'<span class="muted">–</span>'}</td>`+
-    `<td>${m.best<0?'<span class="muted">–</span>':`<span class="chip sm rar" style="--rc:var(--r-${RARITIES[m.best]})">${RARITIES[m.best]}</span>`}</td></tr>`).join("");
+    `<td>${m.best<0?'<span class="muted">–</span>':`<span class="chip sm rar" style="--rc:var(--r-${RARITIES[m.best]})">${RARITIES[m.best]}</span>`}</td>`+
+    `<td class="num">${(()=>{const r=mVal(m,"req");return r?`<b>${r}</b>`:'<span class="muted">–</span>';})()}</td></tr>`).join("");
   document.getElementById("mMore").hidden=rows.length<=mShown;
   mBody._rows=rows;
   paintMemHeads();
@@ -762,7 +802,7 @@ mBody.addEventListener("click",e=>{
     `<span class="chip sm rar" style="--rc:var(--r-${c[4]})">${esc(c[0])} · ${c[4]}${c[1].includes(" X ")?" · "+esc(c[1]):""}</span>`).join(" ");
   const exp=document.createElement("tr");
   exp.className="exp";
-  exp.innerHTML=`<td colspan="6"><div class="pl">${inner}</div></td>`;
+  exp.innerHTML=`<td colspan="7"><div class="pl">${inner}</div></td>`;
   tr.after(exp);
 });
 
@@ -872,6 +912,56 @@ document.getElementById("pFilters").addEventListener("click",e=>{
   for(const x of document.querySelectorAll("#pFilters .fchip"))x.setAttribute("aria-pressed",x===b);
   renderPacks();
 });
+
+// ---- requests tab ----
+if(REQ){
+  const groupsIn=new Set(Object.keys(groups).map(norm));
+  const rqTiles=[
+    [REQ.tickets.toLocaleString(),"idol-request tickets","open at the Help Desk"],
+    [REQ.players.toLocaleString(),"players asking",""],
+    [REQ.groups.length,"groups named",REQ.groups.filter(g=>!groupsIn.has(norm(g.group))).length+" not in the game"],
+    [REQ.groups.reduce((t,g)=>t+g.members.filter(m=>m.players>=2).length,0),"members named 2+ times",""],
+  ];
+  document.getElementById("rqTiles").innerHTML=rqTiles.map(t=>`<div class="tile"><div class="n">${t[0]}</div><div class="l">${t[1]}</div>${t[2]?`<div class="d">${t[2]}</div>`:""}</div>`).join("");
+  document.getElementById("rqNote").textContent="Condensed from open Help Desk idol requests (idol-tab tickets plus suggestions that ask for idols), exported "+REQ.exported+". “Players” counts each player once per group or member, so a few fans spamming the desk don't skew it. "+REQ.unmatched+" tickets named no recognisable group and are left out.";
+  let rqgShown=40,rqmShown=60;
+  const topPlayers=Math.max(...REQ.groups.map(g=>g.players),1);
+  function rqRows(){
+    const q=document.getElementById("rqSearch").value.trim().toLowerCase(),f=document.getElementById("rqIn").value;
+    return REQ.groups.filter(g=>{
+      const inG=groupsIn.has(norm(g.group));
+      if(f==="in"&&!inG)return false;if(f==="out"&&inG)return false;
+      if(q&&!(g.group.toLowerCase().includes(q)||g.members.some(m=>m.name.toLowerCase().includes(q))))return false;
+      return true;
+    });
+  }
+  function renderReq(reset=true){
+    if(reset){rqgShown=40;rqmShown=60;}
+    const rows=rqRows();
+    document.getElementById("rqgCount").textContent=rows.length+" groups";
+    document.querySelector("#rqgTable tbody").innerHTML=rows.slice(0,rqgShown).map(g=>{
+      const inG=groupsIn.has(norm(g.group));
+      const top=g.members.slice(0,4).map(m=>`<span class="chip sm ${m.cards?"free":"miss"}" title="${m.cards} cards in game">${esc(m.name)} <b>${m.players}</b></span>`).join(" ");
+      return `<tr><td><b>${esc(g.group)}</b></td><td>${inG?'<span class="chip sm st-Active">In game</span>':'<span class="chip sm miss">Not yet</span>'}</td>`+
+        `<td class="num">${g.cards||'<span class="muted">–</span>'}</td><td class="num"><b>${g.players}</b></td><td class="num">${g.tickets}</td>`+
+        `<td><span class="tr" style="display:block;height:8px;border-radius:4px;background:var(--surface2);overflow:hidden"><i style="display:block;height:100%;width:${g.players/topPlayers*100}%;background:var(--accent);border-radius:4px"></i></span></td>`+
+        `<td><div class="pl">${top||'<span class="muted">no member named</span>'}</div></td></tr>`;
+    }).join("");
+    document.getElementById("rqgMore").hidden=rows.length<=rqgShown;
+    const q=document.getElementById("rqSearch").value.trim().toLowerCase();
+    const mem=[];for(const g of rows)for(const m of g.members)if(m.players>=2&&(!q||m.name.toLowerCase().includes(q)||g.group.toLowerCase().includes(q)))mem.push({...m,group:g.group});
+    mem.sort((a,b)=>b.players-a.players||b.tickets-a.tickets||a.name.localeCompare(b.name));
+    document.getElementById("rqmCount").textContent=mem.length+" members";
+    document.querySelector("#rqmTable tbody").innerHTML=mem.slice(0,rqmShown).map(m=>
+      `<tr><td><b>${esc(m.name)}</b></td><td>${esc(m.group)}</td><td class="num">${m.cards?m.cards:'<b class="misstxt">0</b>'}</td><td class="num"><b>${m.players}</b></td><td class="num">${m.tickets}</td></tr>`).join("");
+    document.getElementById("rqmMore").hidden=mem.length<=rqmShown;
+  }
+  document.getElementById("rqSearch").addEventListener("input",()=>renderReq());
+  document.getElementById("rqIn").addEventListener("change",()=>renderReq());
+  document.getElementById("rqgMore").addEventListener("click",()=>{rqgShown+=80;renderReq(false);});
+  document.getElementById("rqmMore").addEventListener("click",()=>{rqmShown+=120;renderReq(false);});
+  renderReq();
+}else document.querySelector('#tabs [data-v="requests"]').hidden=true;
 
 // ---- gallery (thumbnails live in img/<SET>.json, fetched per set on demand) ----
 const SHARDS={},LOADING={};
