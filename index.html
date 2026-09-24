@@ -94,7 +94,7 @@ h2:first-child{margin-top:0}
 .rew{background:color-mix(in srgb,var(--reward) 15%,var(--surface));color:color-mix(in srgb,var(--reward) 72%,var(--ink))}
 .st-Active,.st-Permanent{background:color-mix(in srgb,var(--ok) 15%,var(--surface));color:color-mix(in srgb,var(--ok) 72%,var(--ink))}
 .st-Retired{background:color-mix(in srgb,var(--off) 15%,var(--surface));color:color-mix(in srgb,var(--off) 78%,var(--ink))}
-.st-Upcoming{background:color-mix(in srgb,var(--up) 15%,var(--surface));color:color-mix(in srgb,var(--up) 72%,var(--ink))}
+.st-Upcoming,.chip.up{background:color-mix(in srgb,var(--up) 15%,var(--surface));color:color-mix(in srgb,var(--up) 72%,var(--ink))}
 
 .toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
 .toolbar input[type="search"],.toolbar select{background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 11px;min-width:0}
@@ -131,8 +131,17 @@ th .arr{opacity:.9;color:var(--accent)}
 .gcard .gn{font-weight:700;font-size:13.5px;line-height:1.25}
 .gcard .gg{font-size:12px;color:var(--muted);margin:1px 0 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gcard .gm{font-size:11px;color:var(--muted);margin-top:5px}
-.packgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
-.pack{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 15px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:8px}
+.packgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.pack{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 13px;box-shadow:var(--shadow);display:grid;grid-template-columns:74px 1fr;gap:12px;align-items:start}
+.pack .pimg{width:74px;aspect-ratio:136/200;border-radius:8px;background:var(--surface2);object-fit:cover;display:block}
+.pack .pbody{display:flex;flex-direction:column;gap:6px;min-width:0}
+.pack .runs{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:2px}
+.pack .runs b{color:var(--ink);font-weight:600}
+.pack .runs .cur{color:var(--ink)}
+.mhead{display:flex;align-items:baseline;gap:10px;margin:26px 0 10px}
+.mhead:first-child{margin-top:0}
+.mhead h2{margin:0}
+.mhead .mn{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pack .pn{font-weight:700;font-size:15px}
 .pack .meta{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
 .pack .meta b{color:var(--ink);font-weight:600}
@@ -295,18 +304,20 @@ footer{max-width:1180px;margin:0 auto;padding:0 20px 40px;font-size:12.5px;color
     <button class="fchip" data-f="free" aria-pressed="false">Free</button>
     <button class="fchip" data-f="Active" aria-pressed="false">Active now</button>
     <button class="fchip" data-f="Retired" aria-pressed="false">Retired</button>
+    <button class="fchip" data-f="Rerun" aria-pressed="false">Reran</button>
   </div>
   <div class="count-note" id="pCount"></div>
-  <div class="packgrid" id="packGrid"></div>
+  <div id="packTimeline"></div>
 </section>
 </main>
-<footer>Pack status is computed live from each pack's start and leaving dates (UTC), so Active/Retired stays current between syncs. Ask Claude to “sync the idol database” after adding new idols in Studio to refresh everything else.</footer>
+<footer>Pack status is computed live from each run's start and leaving dates (UTC), so Active/Retired stays current between syncs; rerun history comes from the game's pack definitions and their dated backups. Ask Claude to “sync the idol database” after adding new idols in Studio to refresh everything else.</footer>
 
 <script>
 async function init(){
-const [cd,PACKS]=await Promise.all([
+const [cd,PACKS,HISTORY]=await Promise.all([
   fetch("cards.json?v="+Date.now()).then(r=>r.json()),
-  fetch("packs.json?v="+Date.now()).then(r=>r.json())
+  fetch("packs.json?v="+Date.now()).then(r=>r.json()),
+  fetch("pack_history.json?v="+Date.now()).then(r=>r.ok?r.json():{}).catch(()=>({}))
 ]);
 const SYNCED=cd.synced;
 const CARDS=cd.cards.map(c=>c.slice(0,8));
@@ -733,25 +744,87 @@ mBody.addEventListener("click",e=>{
   tr.after(exp);
 });
 
-// ---- packs ----
+// ---- packs: timeline of premium runs by month (reruns included), free packs listed separately ----
+const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const pD=s=>{const[y,m,d]=s.split("-").map(Number);return Date.UTC(y,m-1,d);};
+const fmtS=s=>{const[y,m,d]=s.split("-").map(Number);return MONTHS[m-1]+" "+d;};
+const fmtRange=(a,b)=>fmtS(a)+"–"+fmtS(b)+(a.slice(0,4)!==String(new Date().getUTCFullYear())?", "+a.slice(0,4):"");
+// every premium run: history windows (first run + reruns) merged with the pack's current window
+const RUNS=[];
+for(const p of packsArr){
+  if(!p.robux)continue;
+  const wins=(HISTORY[p.key]||[]).map(w=>w.slice());
+  if(p.start&&p.leave){
+    const cur=[fmtISO(p.start),fmtISO(p.leave)];
+    if(!wins.some(w=>w[0]===cur[0]&&w[1]===cur[1]))wins.push(cur);
+  }
+  wins.sort((a,b)=>a[0]<b[0]?-1:1);
+  p.runs=wins;
+  wins.forEach((w,i)=>{
+    const st=pD(w[0]),en=pD(w[1])+86400000;
+    RUNS.push({p,w,i,n:wins.length,status:NOW<st?"Upcoming":NOW>=en?"Retired":"Active"});
+  });
+}
+function fmtISO(t){return t.year+"-"+String(t.month).padStart(2,"0")+"-"+String(t.day).padStart(2,"0");}
+let PACKIMG=null;
+function loadPackImgs(){
+  if(PACKIMG)return Promise.resolve(PACKIMG);
+  return fetch("img/packs.json?v="+encodeURIComponent(SYNCED)).then(r=>r.ok?r.json():{}).catch(()=>({})).then(m=>{
+    PACKIMG=m;
+    for(const img of document.querySelectorAll("#packTimeline img[data-img]")){const s=m[img.dataset.img];if(s)img.src=s;}
+    return m;
+  });
+}
 let pFilter="";
+function packCard(p,run){
+  const n=p.sets.reduce((t,s)=>t+(setCards[s]||0),0);
+  const img=`<img class="pimg" loading="lazy" alt="" data-img="${esc(p.img||"")}"${PACKIMG&&PACKIMG[p.img]?` src="${PACKIMG[p.img]}"`:""}>`;
+  let chips,runs;
+  if(p.robux){
+    const status=run?run.status:p.status;
+    chips=`<span class="chip sm prem">Premium</span><span class="chip sm st-${status}">${status}</span>${run&&run.i>0?`<span class="chip sm up">${run.i===1?"Rerun":"Rerun "+run.i}</span>`:""}`;
+    runs=p.runs.map((w,i)=>{
+      const label=i===0?"First run":i===1?"Rerun":"Rerun "+i;
+      const isCur=run&&i===run.i;
+      return `<span class="${isCur?"cur":""}">${label}: <b>${fmtRange(w[0],w[1])}</b></span>`;
+    }).join("");
+    if(!p.runs.length)runs=`<span>${fmtD(p.start)} → ${fmtD(p.leave)}</span>`;
+  }else{
+    chips=`<span class="chip sm free">Free</span><span class="chip sm st-Permanent">Permanent</span>`;
+    runs=`<span>Always available · rebirth <b>${p.rb}</b>+</span>`;
+  }
+  const price=p.robux?`<b>R$ ${p.r1}</b> per pack`:`<b>${money(p.price)}</b> per pack`;
+  return `<div class="pack">${img}<div class="pbody"><div class="pn">${esc(p.name)}</div>
+    <div class="chips">${chips}</div>
+    <div class="runs">${runs}</div>
+    <div class="meta">${price} · <b>${n}</b> cards · ${p.sets.map(esc).join(", ")}</div></div></div>`;
+}
 function renderPacks(){
-  let rows=packsArr.slice();
-  if(pFilter==="prem")rows=rows.filter(p=>p.robux);
-  else if(pFilter==="free")rows=rows.filter(p=>!p.robux);
-  else if(pFilter==="Active")rows=rows.filter(p=>p.status==="Active"||p.status==="Permanent");
-  else if(pFilter==="Retired")rows=rows.filter(p=>p.status==="Retired");
-  const order={Active:0,Upcoming:1,Permanent:2,Retired:3};
-  rows.sort((a,b)=>order[a.status]-order[b.status]||(dUTC(b.start)||0)-(dUTC(a.start)||0)||a.rb-b.rb);
-  document.getElementById("pCount").textContent=rows.length+" packs";
-  document.getElementById("packGrid").innerHTML=rows.map(p=>{
-    const n=p.sets.reduce((t,s)=>t+(setCards[s]||0),0);
-    const win=p.robux?`<div class="meta">${fmtD(p.start)} → ${fmtD(p.leave)}</div>`:`<div class="meta">Always available · rebirth ${p.rb}+</div>`;
-    const price=p.robux?`<b>R$ ${p.r1}</b> per pack`:`<b>${money(p.price)}</b> per pack`;
-    return `<div class="pack"><div class="pn">${esc(p.name)}</div>
-      <div class="chips"><span class="chip sm ${p.robux?"prem":"free"}">${p.robux?"Premium":"Free"}</span><span class="chip sm st-${p.status}">${p.status}</span></div>
-      ${win}<div class="meta">${price} · <b>${n}</b> cards in pool · ${p.sets.map(esc).join(", ")}</div></div>`;
-  }).join("");
+  const el=document.getElementById("packTimeline");
+  let runs=RUNS.slice(),free=packsArr.filter(p=>!p.robux);
+  if(pFilter==="prem")free=[];
+  else if(pFilter==="free")runs=[];
+  else if(pFilter==="Active")runs=runs.filter(r=>r.status==="Active");
+  else if(pFilter==="Retired"){runs=runs.filter(r=>r.status==="Retired");free=[];}
+  else if(pFilter==="Rerun"){runs=runs.filter(r=>r.n>1);free=[];}
+  // group premium runs by month of their start date, newest first
+  runs.sort((a,b)=>a.w[0]<b.w[0]?1:a.w[0]>b.w[0]?-1:a.p.name.localeCompare(b.p.name));
+  const byMonth=new Map();
+  for(const r of runs){const k=r.w[0].slice(0,7);(byMonth.get(k)||byMonth.set(k,[]).get(k)).push(r);}
+  let html="";
+  for(const[k,rs]of byMonth){
+    const[y,m]=k.split("-").map(Number);
+    const nRe=rs.filter(r=>r.i>0).length;
+    html+=`<div class="mhead"><h2>${MONTHS[m-1]} ${y}</h2><span class="mn">${rs.length} pack${rs.length===1?"":"s"}${nRe?" · "+nRe+" rerun"+(nRe===1?"":"s"):""}</span></div><div class="packgrid">${rs.map(r=>packCard(r.p,r)).join("")}</div>`;
+  }
+  if(free.length){
+    free.sort((a,b)=>a.rb-b.rb||a.price-b.price);
+    html+=`<div class="mhead"><h2>Always available</h2><span class="mn">${free.length} free packs · ordered by rebirth</span></div><div class="packgrid">${free.map(p=>packCard(p)).join("")}</div>`;
+  }
+  const nPacks=new Set(runs.map(r=>r.p.key)).size+free.length;
+  document.getElementById("pCount").textContent=nPacks+" packs"+(runs.length?" · "+runs.length+" premium runs":"");
+  el.innerHTML=html||'<p class="sub">Nothing matches.</p>';
+  loadPackImgs();
 }
 document.getElementById("pFilters").addEventListener("click",e=>{
   const b=e.target.closest(".fchip");if(!b)return;
